@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FileDrop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">FileDrop</div>
+  <div class="topbar-actions">
+    <button id="btnGetUrl" class="btn btn-outline">Get URL</button>
+    <button id="btnChangePassword" class="btn btn-outline hidden">Change password</button>
+    <button id="btnLogout" class="btn btn-outline hidden">Log out</button>
+  </div>
+</header>
+
+<div id="urlBox" class="url-box hidden">
+  <span id="urlBoxText">—</span>
+  <button id="urlBoxCopy" class="btn btn-small">Copy</button>
+</div>
+
+<div id="passwordBox" class="password-box hidden">
+  <input id="currentPasswordInput" type="password" placeholder="Current password" autocomplete="current-password">
+  <input id="newPasswordInput" type="password" placeholder="New password" autocomplete="new-password">
+  <button id="btnSavePassword" class="btn btn-small btn-primary-small">Save</button>
+  <span id="passwordBoxMsg" class="password-box-msg"></span>
+</div>
+
+<main id="loginView" class="view hidden">
+  <div class="panel login-panel">
+    <h1>Enter password</h1>
+    <input id="passwordInput" type="password" placeholder="Password" autocomplete="current-password">
+    <button id="btnLogin" class="btn btn-primary">Unlock</button>
+    <p id="loginError" class="error hidden">Wrong password.</p>
+  </div>
+</main>
+
+<main id="appView" class="view hidden">
+  <div class="panel">
+    <div id="dropZone" class="drop-zone">
+      <div class="drop-zone-icon">＋</div>
+      <div class="drop-zone-text">Drop a file here, or click to choose</div>
+      <div class="drop-zone-hint">Any file, any size, or paste with &#8984;V. Links expire after 7 days.</div>
+      <input id="fileInput" type="file" class="hidden">
+    </div>
+
+    <div id="uploadProgress" class="upload-progress hidden">
+      <div class="upload-progress-name" id="uploadName"></div>
+      <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
+      <div class="upload-progress-pct" id="uploadPct">0%</div>
+    </div>
+
+    <div id="uploadResult" class="upload-result hidden">
+      <div class="upload-result-label">Shareable link:</div>
+      <div class="upload-result-row">
+        <input id="uploadResultLink" readonly>
+        <button id="uploadResultCopy" class="btn btn-small">Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2 class="section-title">Your files</h2>
+    <div id="fileList" class="file-list"></div>
+    <div id="fileListEmpty" class="hint hidden">No files yet.</div>
+  </div>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,295 @@
+:root {
+  --bg: #0b0d10;
+  --panel: #14171c;
+  --panel-border: #24282f;
+  --accent: #33ff99;
+  --accent-dim: #1f8f57;
+  --fg: #e8ecef;
+  --fg-dim: #9aa3ad;
+  --fg-dimmer: #5c646d;
+  --danger: #ff5c5c;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  min-height: 100vh;
+}
+
+.hidden { display: none !important; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+}
+
+.topbar-actions { display: flex; gap: 8px; }
+
+.btn {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.btn:hover { border-color: var(--accent-dim); }
+
+.btn-outline { background: transparent; }
+
+.btn-primary {
+  background: var(--accent);
+  color: #06130c;
+  border-color: var(--accent);
+  font-weight: 600;
+  width: 100%;
+  margin-top: 12px;
+}
+
+.btn-primary:hover { opacity: 0.9; }
+
+.btn-small { padding: 6px 10px; font-size: 12px; }
+
+.url-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 24px 0;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--accent-dim);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.password-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 24px 0;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+}
+
+.password-box input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: #0d1013;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.btn-primary-small {
+  background: var(--accent);
+  color: #06130c;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.password-box-msg {
+  font-size: 12px;
+  color: var(--fg-dimmer);
+  white-space: nowrap;
+}
+
+.view {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 40px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  padding: 24px;
+}
+
+.login-panel {
+  max-width: 320px;
+  margin: 80px auto 0;
+  text-align: center;
+}
+
+.login-panel h1 {
+  font-size: 18px;
+  margin: 0 0 16px;
+  color: var(--fg-dim);
+}
+
+.login-panel input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: #0d1013;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.error { color: var(--danger); font-size: 13px; margin-top: 10px; }
+
+.drop-zone {
+  border: 2px dashed var(--panel-border);
+  border-radius: 12px;
+  padding: 48px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.drop-zone:hover, .drop-zone.dragover {
+  border-color: var(--accent);
+  background: rgba(51, 255, 153, 0.05);
+}
+
+.drop-zone-icon {
+  font-size: 32px;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+.drop-zone-text { font-size: 15px; color: var(--fg); }
+.drop-zone-hint { font-size: 12px; color: var(--fg-dimmer); margin-top: 6px; }
+
+.upload-progress { margin-top: 18px; }
+.upload-progress-name {
+  font-size: 13px;
+  color: var(--fg-dim);
+  margin-bottom: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-track {
+  height: 8px;
+  background: #0d1013;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.1s linear;
+}
+
+.upload-progress-pct {
+  font-size: 12px;
+  color: var(--fg-dimmer);
+  margin-top: 4px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.upload-result { margin-top: 18px; }
+.upload-result-label { font-size: 12px; color: var(--fg-dimmer); margin-bottom: 6px; }
+.upload-result-row { display: flex; gap: 8px; }
+
+.upload-result-row input {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: #0d1013;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.section-title {
+  font-size: 14px;
+  color: var(--fg-dim);
+  margin: 0 0 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.file-list { display: flex; flex-direction: column; gap: 10px; }
+
+.file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #0d1013;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+}
+
+.file-row-info { min-width: 0; }
+
+.file-row-name {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-row-meta {
+  font-size: 12px;
+  color: var(--fg-dimmer);
+  margin-top: 2px;
+}
+
+.file-row-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+.btn-danger { color: var(--danger); border-color: var(--danger); background: transparent; }
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  color: var(--fg);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  text-decoration: none;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.icon-btn:hover { border-color: var(--accent-dim); }
+.icon-btn.icon-btn--danger:hover { border-color: var(--danger); color: var(--danger); }
+.icon-btn.icon-btn--copied { border-color: var(--accent); color: var(--accent); }
+
+.hint { color: var(--fg-dimmer); font-size: 13px; text-align: center; padding: 12px 0; }

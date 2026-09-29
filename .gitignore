@@ -1,0 +1,8 @@
+# Runtime data FileDrop writes next to server.py -- never commit these.
+PASSWORD.txt
+config.json
+meta.json
+files/
+server.log
+__pycache__/
+.DS_Store
