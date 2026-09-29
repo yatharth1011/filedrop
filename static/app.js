@@ -25,6 +25,8 @@ const uploadPct = $("uploadPct");
 const uploadResult = $("uploadResult");
 const uploadResultLink = $("uploadResultLink");
 const uploadResultCopy = $("uploadResultCopy");
+const textInput = $("textInput");
+const btnSendText = $("btnSendText");
 const fileList = $("fileList");
 const fileListEmpty = $("fileListEmpty");
 
@@ -193,6 +195,47 @@ document.addEventListener("paste", (e) => {
   if (files && files.length > 0) {
     e.preventDefault();
     uploadFile(files[0]);
+    return;
+  }
+  // Pasted text goes into the text box rather than being shared right away:
+  // the clipboard often holds things (passwords, OTPs) you'd never want to
+  // publish by accident. Pastes into a field behave normally.
+  const text = e.clipboardData && e.clipboardData.getData("text/plain");
+  if (text && !e.target.closest?.("input, textarea")) {
+    e.preventDefault();
+    textInput.value = textInput.value ? `${textInput.value}\n${text}` : text;
+    textInput.focus();
+    textInput.setSelectionRange(textInput.value.length, textInput.value.length);
+  }
+});
+
+async function sendText() {
+  const text = textInput.value;
+  if (!text.trim()) return;
+  btnSendText.disabled = true;
+  try {
+    const data = await api("/api/text", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    textInput.value = "";
+    uploadResultLink.value = window.location.origin + data.url;
+    uploadResult.classList.remove("hidden");
+    refreshFileList();
+  } catch (e) {
+    if (e.status === 401) checkAuth();
+    else alert("Sending text failed" + (e.data && e.data.error ? ` -- ${e.data.error}` : ` (${e.status || "connection error"})`));
+  } finally {
+    btnSendText.disabled = false;
+  }
+}
+
+btnSendText.addEventListener("click", sendText);
+textInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    sendText();
   }
 });
 
@@ -264,15 +307,33 @@ async function refreshFileList() {
     info.className = "file-row-info";
     const name = document.createElement("div");
     name.className = "file-row-name";
-    name.textContent = f.name;
+    const isText = f.kind === "text";
+    name.textContent = isText ? (f.preview || f.name) : f.name;
     const meta = document.createElement("div");
     meta.className = "file-row-meta";
-    meta.textContent = `${f.size_human} · ${formatTimeLeft(f.seconds_left)}`;
+    meta.textContent = `${isText ? "text · " : ""}${f.size_human} · ${formatTimeLeft(f.seconds_left)}`;
     info.appendChild(name);
     info.appendChild(meta);
 
     const actions = document.createElement("div");
     actions.className = "file-row-actions";
+
+    if (isText) {
+      const copyTextBtn = document.createElement("button");
+      copyTextBtn.className = "icon-btn";
+      copyTextBtn.title = "Copy text";
+      copyTextBtn.textContent = "\u00B6"; // ¶
+      copyTextBtn.addEventListener("click", async () => {
+        try {
+          const res = await fetch(f.url, { cache: "no-store" });
+          if (!res.ok) throw new Error(res.status);
+          copyText(await res.text(), copyTextBtn, "\u00B6");
+        } catch (e) {
+          alert("Couldn't fetch that text -- it may have expired.");
+        }
+      });
+      actions.appendChild(copyTextBtn);
+    }
 
     const copyBtn = document.createElement("button");
     copyBtn.className = "icon-btn";

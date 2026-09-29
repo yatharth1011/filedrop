@@ -46,8 +46,16 @@
     <div id="dropZone" class="drop-zone">
       <div class="drop-zone-icon">＋</div>
       <div class="drop-zone-text">Drop a file here, or click to choose</div>
-      <div class="drop-zone-hint">Any file, any size, or paste with &#8984;V. Links expire after 7 days.</div>
+      <div class="drop-zone-hint">Any file, any size, or paste one with &#8984;V. Links expire after 7 days.</div>
       <input id="fileInput" type="file" class="hidden">
+    </div>
+
+    <div class="text-drop">
+      <textarea id="textInput" rows="3" placeholder="…or type / paste text to share"></textarea>
+      <div class="text-drop-row">
+        <span class="text-drop-hint">&#8984;&#8629; to send</span>
+        <button id="btnSendText" class="btn btn-small btn-primary-small">Send text</button>
+      </div>
     </div>
 
     <div id="uploadProgress" class="upload-progress hidden">
@@ -66,9 +74,9 @@
   </div>
 
   <div class="panel">
-    <h2 class="section-title">Your files</h2>
+    <h2 class="section-title">Your drops</h2>
     <div id="fileList" class="file-list"></div>
-    <div id="fileListEmpty" class="hint hidden">No files yet.</div>
+    <div id="fileListEmpty" class="hint hidden">Nothing shared yet.</div>
   </div>
 </main>
 

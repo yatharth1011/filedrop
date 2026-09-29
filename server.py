@@ -30,6 +30,7 @@ PASSWORD_TXT = BASE_DIR / "PASSWORD.txt"
 PORT = 8900
 EXPIRY_SECONDS = 7 * 24 * 3600
 CHUNK = 1024 * 1024
+MAX_TEXT_BYTES = 5 * 1024 * 1024  # text drops are read into memory, unlike streamed uploads
 SESSION_COOKIE = "filedrop_session"
 SESSION_MAX_AGE = 30 * 24 * 3600
 
@@ -258,6 +259,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "seconds_left": max(0, entry["expires_at"] - now),
                     "url": f"/d/{token}/{urllib.parse.quote(entry['name'])}",
                     "inline": _is_inline_safe(mimetypes.guess_type(entry["name"])[0] or ""),
+                    "kind": entry.get("kind", "file"),
+                    "preview": entry.get("preview"),
                 }
                 for token, entry in meta.items()
                 if entry["expires_at"] >= now
@@ -279,7 +282,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             ctype, _ = mimetypes.guess_type(entry["name"])
             ctype = ctype or "application/octet-stream"
             self.send_response(200)
-            self.send_header("Content-Type", ctype)
+            # Declare UTF-8 on text, or browsers may guess a legacy encoding and
+            # garble anything non-ASCII (e.g. Hindi) in a text drop.
+            self.send_header("Content-Type", f"{ctype}; charset=utf-8" if ctype.startswith("text/") else ctype)
             self.send_header("X-Content-Type-Options", "nosniff")
             quoted = urllib.parse.quote(entry["name"])
             disposition = "inline" if _is_inline_safe(ctype) else "attachment"
@@ -327,6 +332,42 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 with _sessions_lock:
                     _sessions.discard(token)
             return self._send_json({"ok": True})
+
+        if parsed.path == "/api/text":
+            if not self._authed():
+                return self._send_json({"error": "unauthorized"}, 401)
+            try:
+                length = int(self.headers.get("Content-Length", 0) or 0)
+            except ValueError:
+                length = 0
+            if length > MAX_TEXT_BYTES * 2:  # JSON escaping can roughly double the size
+                return self._send_json({"error": "text too large (max 5 MB) -- upload it as a file instead"}, 413)
+            try:
+                text = json.loads(self.rfile.read(length) or b"{}").get("text", "")
+            except Exception:
+                return self._send_json({"error": "bad request"}, 400)
+            if not isinstance(text, str) or not text.strip():
+                return self._send_json({"error": "empty text"}, 400)
+            data = text.encode("utf-8")
+            if len(data) > MAX_TEXT_BYTES:
+                return self._send_json({"error": "text too large (max 5 MB) -- upload it as a file instead"}, 413)
+
+            token = secrets.token_urlsafe(12)
+            now = time.time()
+            name = time.strftime("text-%Y-%m-%d-%H%M%S.txt", time.localtime(now))
+            (FILES_DIR / f"{token}_{name}").write_bytes(data)
+            with _meta_lock:
+                meta = _load_meta()
+                meta[token] = {
+                    "name": name,
+                    "size": len(data),
+                    "uploaded_at": now,
+                    "expires_at": now + EXPIRY_SECONDS,
+                    "kind": "text",
+                    "preview": " ".join(text.split())[:140],
+                }
+                _save_meta(meta)
+            return self._send_json({"token": token, "url": f"/d/{token}/{urllib.parse.quote(name)}", "name": name})
 
         if parsed.path == "/api/set-password":
             if not self._is_local():
