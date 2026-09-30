@@ -6,3 +6,6 @@ files/
 server.log
 __pycache__/
 .DS_Store
+
+# VS Code gate: CA private key, certificates, code-server profile + extensions, access log
+code/

@@ -14,6 +14,7 @@ import re
 import secrets
 import shutil
 import socket
+import signal
 import sys
 import threading
 import time
@@ -69,6 +70,9 @@ def _ensure_config():
 
 
 CONFIG = _ensure_config()
+
+# CodeGate, the VS Code gate (codegate.py); created in main() so importing this module has no side effects.
+CODE = None
 
 
 def _check_password(password):
@@ -206,6 +210,53 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _is_local(self):
         return self.client_address[0] in _local_addresses()
 
+    def _code_admin_ok(self):
+        # Starting a terminal-granting server: only from this Mac (loopback
+        # Host too, which blocks DNS rebinding), and only with a custom header
+        # a cross-site web page can't send without a CORS preflight.
+        host = (self.headers.get("Host") or "").lower()
+        return (CODE is not None
+                and self.client_address[0] in ("127.0.0.1", "::1")
+                and host in (f"127.0.0.1:{PORT}", f"localhost:{PORT}")
+                and self.headers.get("X-FileDrop-Local") == "1")
+
+    def _send_code_page(self):
+        st = CODE.status() if CODE else {"running": False, "installed": False}
+        esc = lambda v: (str(v).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))
+        if st["running"]:
+            state = (f'<p>CodeGate is running on <b>{esc(os.path.basename(st["folder"]))}</b>.</p>'
+                     f'<a class="btn" href="{esc(st["url"])}">Open CodeGate</a>'
+                     f'<p class="dim">You\'ll be asked for the Mac\'s account password.</p>')
+        else:
+            state = ("<p>CodeGate isn't running. For safety it can only be started on the Mac itself, "
+                     "from Dromac's FileDrop card.</p>")
+        body = f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>CodeGate</title>
+<link rel="stylesheet" href="/styles.css"></head><body>
+<header class="topbar"><div class="brand"><a href="/" style="color:inherit;text-decoration:none">FileDrop</a></div></header>
+<main class="view"><div class="panel code-page">
+<h2 class="section-title">CodeGate · VS Code in the browser</h2>{state}
+<h2 class="section-title">First time on this device?</h2>
+<p>CodeGate runs over HTTPS with its own certificate. Trust it once per device, or the browser
+warns every time and notebooks and previews won't load.</p>
+<a class="btn btn-small" href="/code/ca.pem">Download certificate</a>
+<ul class="dim">
+<li><b>macOS:</b> open the file → Keychain Access adds it → double-click it → Trust → "Always Trust".</li>
+<li><b>Windows:</b> rename to .crt, open it → Install Certificate → Current User →
+"Trusted Root Certification Authorities".</li>
+<li><b>Linux (Chrome):</b> Settings → Privacy and security → Security → Manage certificates →
+Authorities → Import.</li>
+</ul>
+<p class="dim">It can only vouch for private network addresses (10.x, 172.16–31.x, 192.168.x, localhost),
+so trusting it can't be used to impersonate real websites.</p>
+</div></main></body></html>""".encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
     def _send_json(self, obj, status=200):
         body = json.dumps(obj).encode()
         self.send_response(status)
@@ -234,6 +285,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send_static(STATIC_DIR / "app.js", "application/javascript; charset=utf-8")
         if path == "/styles.css":
             return self._send_static(STATIC_DIR / "styles.css", "text/css; charset=utf-8")
+
+        if path == "/code":
+            return self._send_code_page()
+
+        if path == "/code/ca.pem":
+            if CODE is None:
+                return self.send_error(404)
+            data = CODE.ca_pem()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-x509-ca-cert")
+            self.send_header("Content-Disposition", 'attachment; filename="CodeGate-CA.pem"')
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
+        if path == "/api/code/status":
+            if not self._code_admin_ok():
+                return self._send_json({"error": "only available on this Mac"}, 403)
+            return self._send_json(CODE.status())
 
         if path == "/api/whoami":
             return self._send_json({"authed": self._authed(), "local": self._is_local()})
@@ -325,6 +396,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 time.sleep(1)  # slow down password guessing
                 self._send_json({"ok": False}, 401)
             return
+
+        if parsed.path in ("/api/code/start", "/api/code/stop"):
+            if not self._code_admin_ok():
+                return self._send_json({"error": "only available on this Mac"}, 403)
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            try:
+                data = json.loads(self.rfile.read(length) or b"{}") if length else {}
+            except Exception:
+                data = {}
+            if parsed.path == "/api/code/stop":
+                CODE.stop("stopped from Dromac")
+                return self._send_json(CODE.status())
+            try:
+                return self._send_json(CODE.start(data.get("folder", "")))
+            except (ValueError, RuntimeError, OSError) as e:
+                return self._send_json({"error": str(e)}, 400)
 
         if parsed.path == "/api/logout":
             token = self._cookie_token()
@@ -468,6 +555,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 def main():
+    global CODE
+    import codegate
+    CODE = codegate.CodeGate(BASE_DIR, _detect_lan_ip)
+
+    def shutdown(*_):
+        # Never leave a code-server running with nothing gating it.
+        CODE.stop("stopped: FileDrop exiting")
+        os._exit(0)
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
+
     threading.Thread(target=_cleanup_loop, daemon=True).start()
     server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     ip = _detect_lan_ip()

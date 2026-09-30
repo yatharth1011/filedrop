@@ -22,7 +22,11 @@ back a link anyone on the network can open.
 - **Password only settable from the Mac itself.** "Change password" only
   appears, and only works, for requests coming from the machine FileDrop
   runs on, and it needs the current password too.
-- Plain Python 3 standard library: no dependencies.
+- **CodeGate, VS Code in the browser** (optional): a full VS Code window (editor,
+  terminal, Python, Jupyter) on a folder you pick, unlocked with the Mac's
+  account password. See [CodeGate](#codegate) below.
+- Plain Python 3 standard library: no dependencies (VS Code needs
+  `code-server`).
 
 ## Run it
 
@@ -53,10 +57,63 @@ in `~/Library/Application Support/FileDrop`, which is what this installs:
 
 Re-run it to update. Your password and uploads are left alone.
 
+## CodeGate
+
+CodeGate (`/code`) gives you a full VS Code window in the browser (via
+[code-server](https://github.com/coder/code-server)), opened on a folder of
+your choice: editor, integrated terminal, Python and Jupyter notebooks on the
+Mac's own Python.
+
+```bash
+brew install code-server
+code-server --extensions-dir "$HOME/Library/Application Support/FileDrop/code/extensions" \
+  --install-extension ms-python.python --install-extension ms-toolsai.jupyter
+```
+
+**It gives a terminal on the Mac, so it's locked down hard:**
+
+- **Off by default. Only the Mac itself can start it**, via
+  [Dromac](https://github.com/yatharth1011/dromac)'s FileDrop card, which
+  warns you first. The start/stop API only answers loopback requests with a
+  loopback `Host` and a custom header, so web pages can't trigger it.
+- **Unlocked with the Mac account password**, checked through macOS PAM
+  (`checkpw`) in-process and never stored. After 5 wrong passwords (counted
+  across all devices), it locks for 5 minutes.
+- **You get a macOS notification on every unlock and lockout**, and
+  everything is logged to `code/access.log` with the device's IP.
+- **HTTPS only** (TLS 1.2+) on port 8901, using a certificate from a local CA
+  generated on first use. That CA's name constraints only allow private and
+  loopback addresses, so even a stolen CA key can't impersonate real websites
+  on devices that trust it.
+- **code-server has no network port at all.** It listens on an owner-only
+  Unix socket in a private temp directory, reachable only through the gate.
+- **Sessions** are random `Secure`/`HttpOnly` cookies bound to the device's
+  IP. The gate rejects unexpected `Host` headers (DNS rebinding) and the
+  login page can't be framed.
+- **It stops by itself** 30 minutes after the last VS Code tab closes, after 8
+  hours regardless, and whenever FileDrop exits.
+
+**Node, Express and other dev servers** work as usual in the terminal (it's
+your normal login shell). To view one running on, say, `localhost:3000` from
+the other device, open `https://<mac-ip>:8901/proxy/3000/`. VS Code also
+offers this when it detects the port. That goes through the same password and
+HTTPS gate, so there's no need to bind your app to `0.0.0.0` and expose it to
+the whole network. (For apps that need to be served from `/`, use
+`/absproxy/3000/`.)
+
+The folder limit applies to the editor only. **The terminal, Python and
+Jupyter run as your Mac user and can reach everything your account can.**
+Only unlock it on devices you trust.
+
+**Trusting the certificate:** open `/code` on each device you'll use and
+follow the steps to download and trust CodeGate's certificate once. Without
+that, the browser warns every time, and notebooks and previews won't load
+(VS Code's webviews need a trusted HTTPS origin).
+
 ## Security
 
 This is a convenience tool for a network you trust, not a hardened file
-server.
+server. (CodeGate has its own, much stricter model; see above.)
 
 - **No HTTPS.** Your password, session cookie and files travel unencrypted
   over the local network, so anyone who can sniff that network can see
