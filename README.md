@@ -108,8 +108,24 @@ HTTPS gate, so there's no need to bind your app to `0.0.0.0` and expose it to
 the whole network. (For apps that need to be served from `/`, use
 `/absproxy/3000/`.)
 
-The folder limit applies to the editor only. **The terminal, Python and
-Jupyter run as your Mac user and can reach everything your account can.**
+**Confined to the chosen folder.** code-server and everything it starts
+(terminals, Python and Jupyter kernels, Node, ...) run inside a macOS sandbox
+(`sandbox.py`):
+
+- **Can:** read and write the chosen folder; read the system and anything
+  installed outside your home folder (Homebrew, Python, Node); use caches,
+  temp dirs and the network; read the dotfiles shells and tools need
+  (`.zshrc`, `.gitconfig`, Jupyter/IPython dirs).
+- **Can't:** read anything else under `/Users` (your other files, SSH keys,
+  FileDrop's password and CA key) or external drives; write anywhere else;
+  or escape through other programs (Apple Events/`osascript`, `open`,
+  launchd jobs, the keychain, the clipboard).
+- **So these won't work inside it, by design:** opening other folders (the
+  window is kept on the chosen one), global `npm -g` / `pip --user`
+  installs into your home, and anything needing SSH keys or keychain
+  credentials (e.g. `git push` over SSH). Use a token or do those outside
+  CodeGate.
+
 Only unlock it on devices you trust.
 
 **Trusting the certificate:** open `/code` on each device you'll use and

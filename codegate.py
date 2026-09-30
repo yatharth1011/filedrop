@@ -2,6 +2,9 @@
 gate that requires this Mac's account password.
 
 Security model -- this hands out a terminal, so every layer matters:
+  - code-server and everything it starts (terminals, kernels, Node...) run
+    inside a macOS sandbox (sandbox.py) confined to the chosen folder, with
+    the usual ways of escaping via other processes blocked.
   - code-server listens ONLY on a Unix socket (mode 600, in a 700 dir): no
     TCP port at all, so nothing -- not even another local user -- can reach
     it without going through the gate.
@@ -42,6 +45,7 @@ import urllib.parse
 from pathlib import Path
 
 import macauth
+import sandbox
 
 GATE_PORT = 8901
 IDLE_AFTER_LAST_TAB = 30 * 60
@@ -212,9 +216,24 @@ class CodeGate:
             self.socket_path = Path(sock_dir) / "cs.sock"
             data = self.dir / "user-data"
             data.mkdir(mode=0o700, exist_ok=True)
+            extensions = self.dir / "extensions"
+            extensions.mkdir(mode=0o700, exist_ok=True)
+            # code-server's default config (~/.config/code-server) is outside
+            # the sandbox; give it its own, empty one.
+            config = data / "config.yaml"
+            if not config.exists() or config.read_text().strip().startswith("#"):
+                # Must be a YAML mapping (a comment-only file parses as null and
+                # code-server refuses it); the real settings are passed as flags.
+                config.write_text("disable-telemetry: true\n")
+            profile = self.dir / "sandbox.sb"
+            profile.write_text(sandbox.build_profile(
+                folder, str(Path.home()), tempfile.gettempdir(), [str(data), str(extensions), sock_dir]))
+            os.chmod(profile, 0o600)
             env = {k: v for k, v in os.environ.items() if k not in ("PASSWORD", "HASHED_PASSWORD")}
+            env["HISTFILE"] = str(data / "zsh_history")  # ~/.zsh_history is outside the sandbox
             self.proc = subprocess.Popen(
-                [binary,
+                ["/usr/bin/sandbox-exec", "-f", str(profile),
+                 binary, "--config", str(config),
                  "--socket", str(self.socket_path), "--socket-mode", "600",
                  "--auth", "none",  # the gate does auth; the socket itself is owner-only
                  # Port proxy stays ON: /proxy/<port>/ lets you view a dev server
@@ -224,7 +243,7 @@ class CodeGate:
                  "--disable-telemetry", "--disable-update-check",
                  "--disable-getting-started-override",
                  "--user-data-dir", str(data),
-                 "--extensions-dir", str(self.dir / "extensions"),
+                 "--extensions-dir", str(extensions),
                  "--ignore-last-opened",
                  folder],
                 stdout=open(self.dir / "code-server.log", "ab"), stderr=subprocess.STDOUT,
@@ -338,6 +357,11 @@ class CodeGate:
                 return  # listener closed by stop()
             threading.Thread(target=self._handle, args=(raw, addr[0], ctx), daemon=True).start()
 
+    def _inside(self, path):
+        root = self.folder or ""
+        real = os.path.realpath(path)
+        return bool(root) and (real == root or real.startswith(root + os.sep))
+
     def _allowed_host(self, host):
         return host in (f"{self.lan_ip()}:{GATE_PORT}", f"127.0.0.1:{GATE_PORT}", f"localhost:{GATE_PORT}")
 
@@ -375,6 +399,16 @@ class CodeGate:
                     nxt = urllib.parse.quote(target if target.startswith("/") and not target.startswith("//") else "/")
                     return self._reply(conn, 303, "text/plain", b"", {"Location": f"{LOGIN_PATH}?next={nxt}"})
                 return self._reply(conn, 401, "text/plain", b"Unlock CodeGate first.")
+
+            # Keep the window on the chosen folder: "Open Folder..." reloads
+            # with ?folder=/?workspace=, so bounce anything outside it back.
+            # (The sandbox is what actually enforces this; this just gives a
+            # clean result instead of permission errors.)
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(target).query)
+            wanted = (query.get("folder") or [None])[0]
+            if method == "GET" and ("workspace" in query or (wanted is not None and not self._inside(wanted))):
+                return self._reply(conn, 303, "text/plain", b"", {
+                    "Location": "/?folder=" + urllib.parse.quote(self.folder or "/")})
 
             upstream = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             upstream.connect(str(self.socket_path))

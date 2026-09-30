@@ -9,7 +9,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 dest="$HOME/Library/Application Support/FileDrop"
 
 mkdir -p "$dest"
-cp "$here/server.py" "$here/codegate.py" "$here/macauth.py" "$dest/"
+cp "$here/server.py" "$here/codegate.py" "$here/macauth.py" "$here/sandbox.py" "$dest/"
 rsync -a --delete "$here/static/" "$dest/static/"
 
 # CodeGate's Touch ID prompt. Without a Swift compiler (Xcode Command Line
