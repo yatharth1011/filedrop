@@ -120,6 +120,11 @@ contain them:
   `HttpOnly` cookies; each session is routed only to its own member's container.
   Gate pages refuse framing and check `Host` and `Origin`.
 
+The join address is always `https://`. Typing `http://` on port 8901 is
+redirected to it, and the address is live only while a room is open (the gate
+stops when everything's closed and idle, and comes back by itself if FileDrop
+restarts with a room still open).
+
 **Trust the certificate once per device:** open `http://<your-mac-ip>:8900/code`
 and follow the steps. Without it the browser warns every time, and VS Code's
 notebooks and previews won't load (they need a trusted HTTPS origin).

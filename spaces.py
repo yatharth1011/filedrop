@@ -608,6 +608,11 @@ class Spaces:
 
     # --------------------------------------------------------------- status
 
+    def any_room_open(self):
+        now = time.time()
+        with self.lock:
+            return any(r["open"] and r["pin_expires"] > now for r in self.state["rooms"].values())
+
     def _check_kind(self, kind):
         if kind not in KINDS:
             raise SpacesError("Unknown room type.")

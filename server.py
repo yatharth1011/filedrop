@@ -618,6 +618,8 @@ def main():
     SPACES.on_idle = GATE.stop
     if SPACES.runtime_up():
         SPACES.stop_all("cleared at startup")  # leftovers from a previous run; workspaces persist
+    if SPACES.any_room_open():
+        GATE.start()  # a room was open when FileDrop last stopped; its PIN is still valid
 
     def shutdown(*_):
         # Never leave workspaces running with nothing in front of them.

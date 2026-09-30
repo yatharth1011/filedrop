@@ -219,8 +219,39 @@ class Gate:
         member = self.spaces.member(entry[0])
         return (tok, member) if member else (None, None)
 
+    def _redirect_plain_http(self, raw):
+        """Someone typed http:// instead of https:// (the browser otherwise just
+        reports "site can't be reached"): send them to the same place over TLS."""
+        try:
+            buf = b""
+            while b"\r\n\r\n" not in buf and len(buf) < 8192:
+                chunk = raw.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+            lines = buf.decode("latin-1").split("\r\n")
+            target = (lines[0].split(" ") + ["", ""])[1]
+            host = next((l.split(":", 1)[1].strip() for l in lines[1:] if l.lower().startswith("host:")), "")
+            if not self._allowed_host(host):
+                raw.sendall(b"HTTP/1.1 421 Misdirected Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                return
+            path = target if target.startswith("/") and not target.startswith("//") else "/"
+            raw.sendall((f"HTTP/1.1 301 Moved Permanently\r\nLocation: https://{host}{path}\r\n"
+                         "Content-Length: 0\r\nConnection: close\r\n\r\n").encode("latin-1"))
+        except OSError:
+            pass
+        finally:
+            raw.close()
+
     def _handle(self, raw, ip, ctx):
         raw.settimeout(15)
+        try:
+            first = raw.recv(1, socket.MSG_PEEK)
+        except OSError:
+            raw.close()
+            return
+        if first and first != b"\x16":  # a TLS handshake always starts with 0x16
+            return self._redirect_plain_http(raw)
         try:
             conn = ctx.wrap_socket(raw, server_side=True)
         except (ssl.SSLError, OSError):
