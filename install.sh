@@ -12,6 +12,15 @@ mkdir -p "$dest"
 cp "$here/server.py" "$here/codegate.py" "$here/macauth.py" "$dest/"
 rsync -a --delete "$here/static/" "$dest/static/"
 
+# CodeGate's Touch ID prompt. Without a Swift compiler (Xcode Command Line
+# Tools), CodeGate just falls back to the Mac password.
+if command -v swiftc >/dev/null 2>&1; then
+  swiftc -O "$here/touchid.swift" -o "$dest/touchid"
+else
+  rm -f "$dest/touchid"
+  echo "swiftc not found: CodeGate will use the Mac password instead of Touch ID."
+fi
+
 # A running server keeps serving the old code until restarted.
 if pids="$(lsof -tiTCP:8900 -sTCP:LISTEN 2>/dev/null)" && [ -n "$pids" ]; then
   kill $pids

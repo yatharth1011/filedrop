@@ -8,6 +8,7 @@ import ctypes.util
 PAM_PROMPT_ECHO_OFF = 1
 PAM_PROMPT_ECHO_ON = 2
 PAM_SUCCESS = 0
+PAM_AUTHTOK = 6  # OpenPAM item id
 
 
 class _PamMessage(ctypes.Structure):
@@ -40,6 +41,8 @@ _libc.strdup.argtypes = [ctypes.c_char_p]
 _libpam.pam_start.restype = ctypes.c_int
 _libpam.pam_start.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(_PamConv),
                               ctypes.POINTER(ctypes.c_void_p)]
+_libpam.pam_set_item.restype = ctypes.c_int
+_libpam.pam_set_item.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
 _libpam.pam_authenticate.restype = ctypes.c_int
 _libpam.pam_authenticate.argtypes = [ctypes.c_void_p, ctypes.c_int]
 _libpam.pam_acct_mgmt.restype = ctypes.c_int
@@ -72,6 +75,15 @@ def check_password(username, password, service="checkpw"):
     conv_struct = _PamConv(conv, None)
     rc = _libpam.pam_start(service.encode(), username.encode(), ctypes.byref(conv_struct), ctypes.byref(handle))
     if rc != PAM_SUCCESS:
+        return False
+    # macOS's checkpw service is configured `use_first_pass`: it never asks
+    # through the conversation above, it only reads a password already set
+    # as PAM_AUTHTOK. Without this, every password -- right or wrong -- fails.
+    # (PAM copies the item, so the buffer only needs to live for this call.)
+    token = ctypes.create_string_buffer(secret)
+    rc = _libpam.pam_set_item(handle, PAM_AUTHTOK, ctypes.cast(token, ctypes.c_void_p))
+    if rc != PAM_SUCCESS:
+        _libpam.pam_end(handle, rc)
         return False
     rc = _libpam.pam_authenticate(handle, 0)
     if rc == PAM_SUCCESS:

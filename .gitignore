@@ -9,3 +9,4 @@ __pycache__/
 
 # VS Code gate: CA private key, certificates, code-server profile + extensions, access log
 code/
+touchid

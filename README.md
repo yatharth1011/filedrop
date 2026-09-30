@@ -23,8 +23,8 @@ back a link anyone on the network can open.
   appears, and only works, for requests coming from the machine FileDrop
   runs on, and it needs the current password too.
 - **CodeGate, VS Code in the browser** (optional): a full VS Code window (editor,
-  terminal, Python, Jupyter) on a folder you pick, unlocked with the Mac's
-  account password. See [CodeGate](#codegate) below.
+  terminal, Python, Jupyter) on a folder you pick, unlocked with Touch ID on
+  the Mac (or the Mac's password). See [CodeGate](#codegate) below.
 - Plain Python 3 standard library: no dependencies (VS Code needs
   `code-server`).
 
@@ -65,7 +65,7 @@ your choice: editor, integrated terminal, Python and Jupyter notebooks on the
 Mac's own Python.
 
 ```bash
-brew install code-server
+brew install code-server   # Touch ID also needs a Swift compiler (Xcode Command Line Tools)
 code-server --extensions-dir "$HOME/Library/Application Support/FileDrop/code/extensions" \
   --install-extension ms-python.python --install-extension ms-toolsai.jupyter
 ```
@@ -76,9 +76,16 @@ code-server --extensions-dir "$HOME/Library/Application Support/FileDrop/code/ex
   [Dromac](https://github.com/yatharth1011/dromac)'s FileDrop card, which
   warns you first. The start/stop API only answers loopback requests with a
   loopback `Host` and a custom header, so web pages can't trigger it.
-- **Unlocked with the Mac account password**, checked through macOS PAM
-  (`checkpw`) in-process and never stored. After 5 wrong passwords (counted
-  across all devices), it locks for 5 minutes.
+- **Unlocked with Touch ID on the Mac itself.** Pressing "Unlock with Touch
+  ID" raises the system Touch ID prompt on the Mac, naming the requesting
+  device's IP, and a finger on the Mac's sensor lets that device in. Only one
+  prompt can be pending at a time, with a 10 s cooldown after a decline, so
+  nobody can flood you with prompts.
+- **Falls back to the Mac account password** when Touch ID isn't available
+  (no sensor, lid closed) or is declined or times out, e.g. when you're away
+  from the Mac. The password is checked through macOS PAM (`checkpw`)
+  in-process and never stored. After 5 failed unlocks of either kind
+  (counted across all devices), it locks for 5 minutes.
 - **You get a macOS notification on every unlock and lockout**, and
   everything is logged to `code/access.log` with the device's IP.
 - **HTTPS only** (TLS 1.2+) on port 8901, using a certificate from a local CA
