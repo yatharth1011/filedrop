@@ -33,12 +33,21 @@ CHUNK = 1024 * 1024
 MAX_TEXT_BYTES = 5 * 1024 * 1024  # text drops are read into memory, unlike streamed uploads
 SESSION_COOKIE = "filedrop_session"
 SESSION_MAX_AGE = 30 * 24 * 3600
+MAX_JSON_BYTES = 64 * 1024  # login / password-change bodies
+PBKDF2_ROUNDS = 200_000
+# Wrong-password lockout, per client IP: the server is threaded, so the 1 s
+# delay on a bad guess alone wouldn't stop many guesses in parallel.
+MAX_FAILURES = 5
+FAILURE_WINDOW = 10 * 60
+LOCKOUT_SECONDS = 5 * 60
 
 FILES_DIR.mkdir(exist_ok=True)
 
 _meta_lock = threading.Lock()
 _sessions_lock = threading.Lock()
 _sessions = set()
+_failures_lock = threading.Lock()
+_failures = {}  # ip -> {"count": n, "first": t, "locked_until": t}
 
 
 def _load_meta():
@@ -59,8 +68,7 @@ def _ensure_config():
         return json.loads(CONFIG_PATH.read_text())
     password = secrets.token_urlsafe(9)
     salt = secrets.token_hex(16)
-    pw_hash = hashlib.sha256((salt + password).encode()).hexdigest()
-    config = {"salt": salt, "password_hash": pw_hash}
+    config = {"salt": salt, "password_hash": _hash_pw(password, salt), "scheme": "pbkdf2"}
     CONFIG_PATH.write_text(json.dumps(config))
     PASSWORD_TXT.write_text(password + "\n")
     os.chmod(PASSWORD_TXT, 0o600)
@@ -68,20 +76,60 @@ def _ensure_config():
     return config
 
 
+def _hash_pw(password, salt):
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), PBKDF2_ROUNDS).hex()
+
+
 CONFIG = _ensure_config()
 
 
 def _check_password(password):
-    pw_hash = hashlib.sha256((CONFIG["salt"] + (password or "")).encode()).hexdigest()
-    return secrets.compare_digest(pw_hash, CONFIG["password_hash"])
+    password = password if isinstance(password, str) else ""
+    if CONFIG.get("scheme") == "pbkdf2":
+        pw_hash = _hash_pw(password, CONFIG["salt"])
+    else:  # configs written before PBKDF2: single salted SHA-256
+        pw_hash = hashlib.sha256((CONFIG["salt"] + password).encode()).hexdigest()
+    ok = secrets.compare_digest(pw_hash, CONFIG["password_hash"])
+    if ok and CONFIG.get("scheme") != "pbkdf2":
+        _store_hash(password)  # upgrade in place; the password itself is unchanged
+    return ok
+
+
+def _store_hash(password):
+    salt = secrets.token_hex(16)
+    CONFIG["salt"] = salt
+    CONFIG["password_hash"] = _hash_pw(password, salt)
+    CONFIG["scheme"] = "pbkdf2"
+    CONFIG_PATH.write_text(json.dumps(CONFIG))
+    os.chmod(CONFIG_PATH, 0o600)
+
+
+def _locked_out(ip):
+    with _failures_lock:
+        f = _failures.get(ip)
+        return bool(f and f.get("locked_until", 0) > time.time())
+
+
+def _record_failure(ip):
+    now = time.time()
+    with _failures_lock:
+        f = _failures.get(ip)
+        if not f or now - f["first"] > FAILURE_WINDOW:
+            f = _failures[ip] = {"count": 0, "first": now, "locked_until": 0}
+        f["count"] += 1
+        if f["count"] >= MAX_FAILURES:
+            f["locked_until"] = now + LOCKOUT_SECONDS
+            f["count"] = 0
+            f["first"] = now
+
+
+def _clear_failures(ip):
+    with _failures_lock:
+        _failures.pop(ip, None)
 
 
 def _set_password(new_password):
-    salt = secrets.token_hex(16)
-    pw_hash = hashlib.sha256((salt + new_password).encode()).hexdigest()
-    CONFIG["salt"] = salt
-    CONFIG["password_hash"] = pw_hash
-    CONFIG_PATH.write_text(json.dumps(CONFIG))
+    _store_hash(new_password)
     PASSWORD_TXT.write_text(new_password + "\n")
     os.chmod(PASSWORD_TXT, 0o600)
     # Changing the password invalidates every existing session (including
@@ -203,6 +251,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
         with _sessions_lock:
             return token in _sessions
 
+    def _read_json(self):
+        """Read a small JSON body; None if it's too big or not JSON."""
+        try:
+            length = int(self.headers.get("Content-Length", 0) or 0)
+        except ValueError:
+            return None
+        if length < 0 or length > MAX_JSON_BYTES:
+            return None
+        try:
+            data = json.loads(self.rfile.read(length) or b"{}") if length else {}
+        except Exception:
+            return None
+        return data if isinstance(data, dict) else None
+
     def _is_local(self):
         return self.client_address[0] in _local_addresses()
 
@@ -301,13 +363,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
 
         if parsed.path == "/api/login":
-            length = int(self.headers.get("Content-Length", 0) or 0)
-            body = self.rfile.read(length) if length else b""
-            try:
-                data = json.loads(body or b"{}")
-            except Exception:
-                data = {}
+            ip = self.client_address[0]
+            if _locked_out(ip):
+                return self._send_json({"ok": False, "error": "too many wrong passwords -- try again in a few minutes"}, 429)
+            data = self._read_json()
+            if data is None:
+                return self._send_json({"ok": False, "error": "bad request"}, 400)
             if _check_password(data.get("password", "")):
+                _clear_failures(ip)
                 token = secrets.token_urlsafe(24)
                 with _sessions_lock:
                     _sessions.add(token)
@@ -322,6 +385,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(out)
             else:
+                _record_failure(ip)
                 time.sleep(1)  # slow down password guessing
                 self._send_json({"ok": False}, 401)
             return
@@ -374,18 +438,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send_json({"error": "only the Mac running FileDrop can change its password"}, 403)
             if not self._authed():
                 return self._send_json({"error": "unauthorized"}, 401)
-            length = int(self.headers.get("Content-Length", 0) or 0)
-            body = self.rfile.read(length) if length else b""
-            try:
-                data = json.loads(body or b"{}")
-            except Exception:
-                data = {}
+            data = self._read_json()
+            if data is None:
+                return self._send_json({"error": "bad request"}, 400)
             current = data.get("current_password", "")
             new = data.get("new_password", "")
             if not _check_password(current):
                 time.sleep(1)
                 return self._send_json({"error": "current password is wrong"}, 401)
-            if not new or len(new) < 4:
+            if not isinstance(new, str) or len(new) < 4:
                 return self._send_json({"error": "new password must be at least 4 characters"}, 400)
             _set_password(new)
             return self._send_json({"ok": True})

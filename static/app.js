@@ -74,6 +74,9 @@ async function doLogin() {
       loginError.classList.remove("hidden");
     }
   } catch (e) {
+    // Remember the default text so a lockout message doesn't stick around.
+    loginError.dataset.defaultText ??= loginError.textContent;
+    loginError.textContent = (e && e.data && e.data.error) || loginError.dataset.defaultText;
     loginError.classList.remove("hidden");
   }
 }
