@@ -2,13 +2,7 @@
 PASSWORD.txt
 config.json
 meta.json
-/files/
+files/
 server.log
 __pycache__/
 .DS_Store
-
-# VS Code gate: CA private key, certificates, code-server profile + extensions, access log
-/code/
-
-# CodeGate members, resume-code hashes and starter files
-/spaces/

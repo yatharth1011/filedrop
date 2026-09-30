@@ -9,15 +9,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 dest="$HOME/Library/Application Support/FileDrop"
 
 mkdir -p "$dest"
-cp "$here/server.py" "$here/codegate.py" "$here/spaces.py" "$dest/"
+cp "$here/server.py" "$dest/"
 rsync -a --delete "$here/static/" "$dest/static/"
-rsync -a --delete "$here/docker/" "$dest/docker/"
-
-# CodeGate runs each member in a Docker container. That's optional; if Docker
-# and Colima aren't installed, FileDrop works as before without it.
-if ! command -v docker >/dev/null 2>&1 || ! command -v colima >/dev/null 2>&1; then
-  echo "Optional: for CodeGate rooms, run:  brew install colima docker"
-fi
 
 # A running server keeps serving the old code until restarted.
 if pids="$(lsof -tiTCP:8900 -sTCP:LISTEN 2>/dev/null)" && [ -n "$pids" ]; then

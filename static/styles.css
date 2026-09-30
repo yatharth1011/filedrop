@@ -328,13 +328,3 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-/* ---------- /code page ---------- */
-
-.code-page p { font-size: 13px; line-height: 1.6; margin: 0 0 12px; }
-.code-page .section-title { margin-top: 22px; }
-.code-page .section-title:first-child { margin-top: 0; }
-.code-page .btn { display: inline-block; text-decoration: none; margin-bottom: 12px; }
-.code-page ul { padding-left: 18px; margin: 4px 0 12px; }
-.code-page li { margin-bottom: 6px; line-height: 1.5; }
-.dim { color: var(--fg-dimmer); font-size: 12px; }

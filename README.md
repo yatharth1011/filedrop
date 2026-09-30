@@ -22,11 +22,7 @@ back a link anyone on the network can open.
 - **Password only settable from the Mac itself.** "Change password" only
   appears, and only works, for requests coming from the machine FileDrop
   runs on, and it needs the current password too.
-- **CodeGate** (optional): PIN-protected rooms where people get their own
-  private VS Code or Ubuntu desktop in the browser, in isolated containers.
-  See [CodeGate](#codegate) below.
-- Plain Python 3 standard library: no dependencies (CodeGate needs
-  Colima + Docker).
+- Plain Python 3 standard library: no dependencies.
 
 ## Run it
 
@@ -57,92 +53,16 @@ in `~/Library/Application Support/FileDrop`, which is what this installs:
 
 Re-run it to update. Your password and uploads are left alone.
 
-## CodeGate
+## Related
 
-CodeGate lets people on your network get their **own private workspace** on
-your Mac, either **VS Code in the browser** (editor, terminal, Python,
-Jupyter, Node) or a **full Ubuntu desktop**, with nothing to install on their
-side. Each person gets their own container, their own copy of the files you
-prepared, and their own login name in the terminal. Their changes stay in
-their copy, and they can download all of it as a zip.
-
-You run it from [Dromac](https://github.com/yatharth1011/dromac)'s FileDrop
-card ("manage" under `$ codegate`); there is deliberately no way to start it
-from a web page or from another machine.
-
-```bash
-brew install colima docker     # the container runtime
-./install.sh                   # installs FileDrop + the image build files
-```
-
-Then, in Dromac: **manage → build image** (once per room type; the first build
-downloads a few GB), **+ add from folder…** to add starter files, and
-**open room** to get a PIN.
-
-### How people use it
-
-1. You open a room and share its PIN. Each room type (VS Code, Ubuntu desktop)
-   has its own PIN.
-2. They go to `https://<your-mac-ip>:8901/`, enter a name and the PIN, and are
-   shown a **resume code**, the only way to get the same workspace back from
-   another browser or device.
-3. They open their workspace (or a specific starter), edit and run things, and
-   press **Download** for a zip of their work. **Reset** restores a starter's
-   original files.
-4. You can see who's active, stop or remove anyone, and save any member's (or
-   everyone's) work as zips into `~/Documents/CodeGate Collected`.
-
-### What it protects
-
-Running other people's code on your Mac is the risky part, so it's built to
-contain them:
-
-- **Off by default and owner-only.** Rooms are opened only from your Mac
-  (loopback client and Host, plus a custom header web pages can't send). Dromac
-  warns you before opening one.
-- **Joining needs a PIN** (8 characters, expires after 12 hours, one per room
-  type) and a name; returning members need their resume code. Wrong attempts
-  are throttled per device, and there's a cap on new joins per hour.
-- **One container per member**, running as an unprivileged user with **no
-  Linux capabilities and `no-new-privileges`**, hard **CPU, memory,
-  process and disk limits** (1 CPU / 1 GB / 256 processes / 2 GB for VS Code,
-  more for the desktop), an init process so runaway processes can't wedge it,
-  and no Docker socket. Idle workspaces are removed after 30 minutes; their
-  files persist.
-- **They can't reach your Mac.** The container VM has no access to your files
-  (Colima's default home-folder mount is removed), and a firewall in the VM
-  drops all traffic from member containers to private and local networks: your
-  Mac and its services, your LAN, the VM itself, and other members. They can
-  still reach the internet (you can switch that off), because installing
-  packages needs it.
-- **HTTPS only** (TLS 1.2+) with a certificate from a local CA whose name
-  constraints only allow private addresses. Sessions are random `Secure` /
-  `HttpOnly` cookies; each session is routed only to its own member's container.
-  Gate pages refuse framing and check `Host` and `Origin`.
-
-The join address is always `https://`. Typing `http://` on port 8901 is
-redirected to it, and the address is live only while a room is open (the gate
-stops when everything's closed and idle, and comes back by itself if FileDrop
-restarts with a room still open).
-
-**Trust the certificate once per device:** open `http://<your-mac-ip>:8900/code`
-and follow the steps. Without it the browser warns every time, and VS Code's
-notebooks and previews won't load (they need a trusted HTTPS origin).
-
-### Limits to know about
-
-- Members can use your internet connection. Turn internet off in
-  Dromac's manager if that's a problem, or only open rooms for people you know.
-- The container VM is capped at 4 CPUs / 8 GB by default (`colima start --cpu
-  --memory` to change); the per-room "at once" limit keeps you inside it.
-- Isolation is container-grade, not a hardware boundary. A kernel-level
-  container escape would land in the small Linux VM, not on macOS, but treat
-  rooms as "people I'd let use a shared lab machine".
+Looking for private VS Code or Ubuntu desktop workspaces in the browser,
+one per person, PIN-protected and isolated? That's a separate project:
+[CodeGate](https://github.com/yatharth1011/codegate).
 
 ## Security
 
 This is a convenience tool for a network you trust, not a hardened file
-server. (CodeGate has its own, much stricter model; see above.)
+server.
 
 - **No HTTPS.** Your password, session cookie and files travel unencrypted
   over the local network, so anyone who can sniff that network can see
