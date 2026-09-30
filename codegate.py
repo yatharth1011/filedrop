@@ -247,7 +247,10 @@ class CodeGate:
                  "--ignore-last-opened",
                  folder],
                 stdout=open(self.dir / "code-server.log", "ab"), stderr=subprocess.STDOUT,
-                env=env, start_new_session=True,
+                # Must start *inside* the sandbox's allowed area: FileDrop's own
+                # folder (the inherited cwd) is off-limits, and Node dies if it
+                # can't read its working directory.
+                cwd=folder, env=env, start_new_session=True,
             )
             self.pid_file.write_text(str(self.proc.pid))
             for _ in range(150):
@@ -622,7 +625,7 @@ button:disabled{{opacity:.6;cursor:wait}}
 .foot{{font-size:11px;color:#5c646d;margin-top:14px}}
 </style></head><body><div class="box">
 <h1>Unlock CodeGate</h1><p class="sub">VS Code on: {folder}</p>
-<div class="warn">This opens a full terminal on the Mac. Only unlock it from a device you trust.</div>
+<div class="warn">This opens VS Code with a terminal that can run code and change anything in this folder (sandboxed to it). Only unlock it from a device you trust.</div>
 {touch}{pw_form}{err}
 <p class="foot">Seeing a certificate warning, or notebooks not loading? Trust CodeGate's certificate once on this device: <a href="{ca_url}">how</a>.</p>
 </div></body></html>""".encode("utf-8")

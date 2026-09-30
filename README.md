@@ -70,7 +70,7 @@ code-server --extensions-dir "$HOME/Library/Application Support/FileDrop/code/ex
   --install-extension ms-python.python --install-extension ms-toolsai.jupyter
 ```
 
-**It gives a terminal on the Mac, so it's locked down hard:**
+**It runs code on the Mac (the terminal, kernels), so it's locked down hard:**
 
 - **Off by default. Only the Mac itself can start it**, via
   [Dromac](https://github.com/yatharth1011/dromac)'s FileDrop card, which
