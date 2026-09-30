@@ -22,11 +22,11 @@ back a link anyone on the network can open.
 - **Password only settable from the Mac itself.** "Change password" only
   appears, and only works, for requests coming from the machine FileDrop
   runs on, and it needs the current password too.
-- **CodeGate, VS Code in the browser** (optional): a full VS Code window (editor,
-  terminal, Python, Jupyter) on a folder you pick, unlocked with Touch ID on
-  the Mac (or the Mac's password). See [CodeGate](#codegate) below.
-- Plain Python 3 standard library: no dependencies (VS Code needs
-  `code-server`).
+- **CodeGate** (optional): PIN-protected rooms where people get their own
+  private VS Code or Ubuntu desktop in the browser, in isolated containers.
+  See [CodeGate](#codegate) below.
+- Plain Python 3 standard library: no dependencies (CodeGate needs
+  Colima + Docker).
 
 ## Run it
 
@@ -59,79 +59,80 @@ Re-run it to update. Your password and uploads are left alone.
 
 ## CodeGate
 
-CodeGate (`/code`) gives you a full VS Code window in the browser (via
-[code-server](https://github.com/coder/code-server)), opened on a folder of
-your choice: editor, integrated terminal, Python and Jupyter notebooks on the
-Mac's own Python.
+CodeGate lets people on your network get their **own private workspace** on
+your Mac, either **VS Code in the browser** (editor, terminal, Python,
+Jupyter, Node) or a **full Ubuntu desktop**, with nothing to install on their
+side. Each person gets their own container, their own copy of the files you
+prepared, and their own login name in the terminal. Their changes stay in
+their copy, and they can download all of it as a zip.
+
+You run it from [Dromac](https://github.com/yatharth1011/dromac)'s FileDrop
+card ("manage" under `$ codegate`); there is deliberately no way to start it
+from a web page or from another machine.
 
 ```bash
-brew install code-server   # Touch ID also needs a Swift compiler (Xcode Command Line Tools)
-code-server --extensions-dir "$HOME/Library/Application Support/FileDrop/code/extensions" \
-  --install-extension ms-python.python --install-extension ms-toolsai.jupyter
+brew install colima docker     # the container runtime
+./install.sh                   # installs FileDrop + the image build files
 ```
 
-**It runs code on the Mac (the terminal, kernels), so it's locked down hard:**
+Then, in Dromac: **manage → build image** (once per room type; the first build
+downloads a few GB), **+ add from folder…** to add starter files, and
+**open room** to get a PIN.
 
-- **Off by default. Only the Mac itself can start it**, via
-  [Dromac](https://github.com/yatharth1011/dromac)'s FileDrop card, which
-  warns you first. The start/stop API only answers loopback requests with a
-  loopback `Host` and a custom header, so web pages can't trigger it.
-- **Unlocked with Touch ID on the Mac itself.** Pressing "Unlock with Touch
-  ID" raises the system Touch ID prompt on the Mac, naming the requesting
-  device's IP, and a finger on the Mac's sensor lets that device in. Only one
-  prompt can be pending at a time, with a 10 s cooldown after a decline, so
-  nobody can flood you with prompts.
-- **Falls back to the Mac account password** when Touch ID isn't available
-  (no sensor, lid closed) or is declined or times out, e.g. when you're away
-  from the Mac. The password is checked through macOS PAM (`checkpw`)
-  in-process and never stored. After 5 failed unlocks of either kind
-  (counted across all devices), it locks for 5 minutes.
-- **You get a macOS notification on every unlock and lockout**, and
-  everything is logged to `code/access.log` with the device's IP.
-- **HTTPS only** (TLS 1.2+) on port 8901, using a certificate from a local CA
-  generated on first use. That CA's name constraints only allow private and
-  loopback addresses, so even a stolen CA key can't impersonate real websites
-  on devices that trust it.
-- **code-server has no network port at all.** It listens on an owner-only
-  Unix socket in a private temp directory, reachable only through the gate.
-- **Sessions** are random `Secure`/`HttpOnly` cookies bound to the device's
-  IP. The gate rejects unexpected `Host` headers (DNS rebinding) and the
-  login page can't be framed.
-- **It stops by itself** 30 minutes after the last VS Code tab closes, after 8
-  hours regardless, and whenever FileDrop exits.
+### How people use it
 
-**Node, Express and other dev servers** work as usual in the terminal (it's
-your normal login shell). To view one running on, say, `localhost:3000` from
-the other device, open `https://<mac-ip>:8901/proxy/3000/`. VS Code also
-offers this when it detects the port. That goes through the same password and
-HTTPS gate, so there's no need to bind your app to `0.0.0.0` and expose it to
-the whole network. (For apps that need to be served from `/`, use
-`/absproxy/3000/`.)
+1. You open a room and share its PIN. Each room type (VS Code, Ubuntu desktop)
+   has its own PIN.
+2. They go to `https://<your-mac-ip>:8901/`, enter a name and the PIN, and are
+   shown a **resume code**, the only way to get the same workspace back from
+   another browser or device.
+3. They open their workspace (or a specific starter), edit and run things, and
+   press **Download** for a zip of their work. **Reset** restores a starter's
+   original files.
+4. You can see who's active, stop or remove anyone, and save any member's (or
+   everyone's) work as zips into `~/Documents/CodeGate Collected`.
 
-**Confined to the chosen folder.** code-server and everything it starts
-(terminals, Python and Jupyter kernels, Node, ...) run inside a macOS sandbox
-(`sandbox.py`):
+### What it protects
 
-- **Can:** read and write the chosen folder; read the system and anything
-  installed outside your home folder (Homebrew, Python, Node); use caches,
-  temp dirs and the network; read the dotfiles shells and tools need
-  (`.zshrc`, `.gitconfig`, Jupyter/IPython dirs).
-- **Can't:** read anything else under `/Users` (your other files, SSH keys,
-  FileDrop's password and CA key) or external drives; write anywhere else;
-  or escape through other programs (Apple Events/`osascript`, `open`,
-  launchd jobs, the keychain, the clipboard).
-- **So these won't work inside it, by design:** opening other folders (the
-  window is kept on the chosen one), global `npm -g` / `pip --user`
-  installs into your home, and anything needing SSH keys or keychain
-  credentials (e.g. `git push` over SSH). Use a token or do those outside
-  CodeGate.
+Running other people's code on your Mac is the risky part, so it's built to
+contain them:
 
-Only unlock it on devices you trust.
+- **Off by default and owner-only.** Rooms are opened only from your Mac
+  (loopback client and Host, plus a custom header web pages can't send). Dromac
+  warns you before opening one.
+- **Joining needs a PIN** (8 characters, expires after 12 hours, one per room
+  type) and a name; returning members need their resume code. Wrong attempts
+  are throttled per device, and there's a cap on new joins per hour.
+- **One container per member**, running as an unprivileged user with **no
+  Linux capabilities and `no-new-privileges`**, hard **CPU, memory,
+  process and disk limits** (1 CPU / 1 GB / 256 processes / 2 GB for VS Code,
+  more for the desktop), an init process so runaway processes can't wedge it,
+  and no Docker socket. Idle workspaces are removed after 30 minutes; their
+  files persist.
+- **They can't reach your Mac.** The container VM has no access to your files
+  (Colima's default home-folder mount is removed), and a firewall in the VM
+  drops all traffic from member containers to private and local networks: your
+  Mac and its services, your LAN, the VM itself, and other members. They can
+  still reach the internet (you can switch that off), because installing
+  packages needs it.
+- **HTTPS only** (TLS 1.2+) with a certificate from a local CA whose name
+  constraints only allow private addresses. Sessions are random `Secure` /
+  `HttpOnly` cookies; each session is routed only to its own member's container.
+  Gate pages refuse framing and check `Host` and `Origin`.
 
-**Trusting the certificate:** open `/code` on each device you'll use and
-follow the steps to download and trust CodeGate's certificate once. Without
-that, the browser warns every time, and notebooks and previews won't load
-(VS Code's webviews need a trusted HTTPS origin).
+**Trust the certificate once per device:** open `http://<your-mac-ip>:8900/code`
+and follow the steps. Without it the browser warns every time, and VS Code's
+notebooks and previews won't load (they need a trusted HTTPS origin).
+
+### Limits to know about
+
+- Members can use your internet connection. Turn internet off in
+  Dromac's manager if that's a problem, or only open rooms for people you know.
+- The container VM is capped at 4 CPUs / 8 GB by default (`colima start --cpu
+  --memory` to change); the per-room "at once" limit keeps you inside it.
+- Isolation is container-grade, not a hardware boundary. A kernel-level
+  container escape would land in the small Linux VM, not on macOS, but treat
+  rooms as "people I'd let use a shared lab machine".
 
 ## Security
 

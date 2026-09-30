@@ -15,6 +15,7 @@ import secrets
 import shutil
 import socket
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -71,8 +72,10 @@ def _ensure_config():
 
 CONFIG = _ensure_config()
 
-# CodeGate, the VS Code gate (codegate.py); created in main() so importing this module has no side effects.
-CODE = None
+# CodeGate: per-member workspaces (spaces.py) behind an HTTPS gate (codegate.py);
+# created in main() so importing this module has no side effects.
+SPACES = None
+GATE = None
 
 
 def _check_password(password):
@@ -210,32 +213,81 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _is_local(self):
         return self.client_address[0] in _local_addresses()
 
-    def _code_admin_ok(self):
-        # Starting a terminal-granting server: only from this Mac (loopback
-        # Host too, which blocks DNS rebinding), and only with a custom header
-        # a cross-site web page can't send without a CORS preflight.
+    def _admin_ok(self):
+        # Running other people's code on this Mac is owner-only: loopback
+        # client and Host (blocks DNS rebinding), plus a custom header a
+        # cross-site web page can't send without a CORS preflight.
         host = (self.headers.get("Host") or "").lower()
-        return (CODE is not None
+        return (SPACES is not None
                 and self.client_address[0] in ("127.0.0.1", "::1")
                 and host in (f"127.0.0.1:{PORT}", f"localhost:{PORT}")
                 and self.headers.get("X-FileDrop-Local") == "1")
 
+    def _spaces_status(self):
+        return {"gate": {"running": GATE.running(), "url": GATE.url()}, **SPACES.status()}
+
+    def _spaces_action(self, action, data):
+        from spaces import SpacesError
+        try:
+            if action == "open":
+                SPACES.open_room(data.get("kind"))
+                GATE.start()
+                if not SPACES.runtime_up():
+                    SPACES.start_runtime()
+            elif action == "close":
+                SPACES.close_room(data.get("kind"))
+            elif action == "stop_all":
+                SPACES.stop_all("stopped from Dromac")
+                for kind in list(SPACES.state["rooms"]):
+                    SPACES.close_room(kind)
+                GATE.stop()
+            elif action == "add_starter":
+                SPACES.add_starter(data.get("slug"), data.get("title"), data.get("folder"))
+            elif action == "delete_starter":
+                SPACES.delete_starter(data.get("slug"))
+            elif action == "stop_member":
+                SPACES.stop_member(data.get("id"))
+                GATE.drop_member(data.get("id"))
+            elif action == "remove_member":
+                GATE.drop_member(data.get("id"))
+                SPACES.remove_member(data.get("id"))
+            elif action == "set_internet":
+                SPACES.set_internet(bool(data.get("on")))
+            elif action == "set_limit":
+                SPACES.set_limit(data.get("kind"), data.get("n"))
+            elif action == "start_runtime":
+                SPACES.start_runtime()
+            elif action == "build_image":
+                SPACES.build_image(data.get("kind"))
+            elif action == "export":
+                # Saves zips of members' work into ~/Documents/CodeGate Collected on this Mac.
+                dest = Path.home() / "Documents" / "CodeGate Collected"
+                ids = ([m["id"] for m in SPACES.status()["members"]] if data.get("id") == "*" else [data.get("id")])
+                saved = [SPACES.export_member(i, data.get("starter") or None, dest) for i in ids
+                         if SPACES.member(i)]
+                if not saved:
+                    raise SpacesError("Nothing to export.")
+                subprocess.Popen(["open", "-R", saved[0]])
+                return {**self._spaces_status(), "exported": len(saved), "folder": str(dest)}
+            else:
+                return {"error": "unknown action"}
+        except SpacesError as e:
+            return {"error": str(e)}
+        return self._spaces_status()
+
     def _send_code_page(self):
-        st = CODE.status() if CODE else {"running": False, "installed": False}
         esc = lambda v: (str(v).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))
-        if st["running"]:
-            state = (f'<p>CodeGate is running on <b>{esc(os.path.basename(st["folder"]))}</b>.</p>'
-                     f'<a class="btn" href="{esc(st["url"])}">Open CodeGate</a>'
-                     f'<p class="dim">You\'ll be asked for the Mac\'s account password.</p>')
+        if GATE is not None and GATE.running():
+            state = (f'<p>A room is open.</p><a class="btn" href="{esc(GATE.url())}">Join a room</a>'
+                     f'<p class="dim">You\'ll need the PIN you were given.</p>')
         else:
-            state = ("<p>CodeGate isn't running. For safety it can only be started on the Mac itself, "
-                     "from Dromac's FileDrop card.</p>")
+            state = "<p>No room is open right now.</p>"
         body = f"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>CodeGate</title>
 <link rel="stylesheet" href="/styles.css"></head><body>
 <header class="topbar"><div class="brand"><a href="/" style="color:inherit;text-decoration:none">FileDrop</a></div></header>
 <main class="view"><div class="panel code-page">
-<h2 class="section-title">CodeGate · VS Code in the browser</h2>{state}
+<h2 class="section-title">CodeGate</h2>{state}
 <h2 class="section-title">First time on this device?</h2>
 <p>CodeGate runs over HTTPS with its own certificate. Trust it once per device, or the browser
 warns every time and notebooks and previews won't load.</p>
@@ -290,9 +342,9 @@ so trusting it can't be used to impersonate real websites.</p>
             return self._send_code_page()
 
         if path == "/code/ca.pem":
-            if CODE is None:
+            if GATE is None:
                 return self.send_error(404)
-            data = CODE.ca_pem()
+            data = GATE.ca_pem()
             self.send_response(200)
             self.send_header("Content-Type", "application/x-x509-ca-cert")
             self.send_header("Content-Disposition", 'attachment; filename="CodeGate-CA.pem"')
@@ -301,10 +353,10 @@ so trusting it can't be used to impersonate real websites.</p>
             self.wfile.write(data)
             return
 
-        if path == "/api/code/status":
-            if not self._code_admin_ok():
+        if path == "/api/spaces/status":
+            if not self._admin_ok():
                 return self._send_json({"error": "only available on this Mac"}, 403)
-            return self._send_json(CODE.status())
+            return self._send_json(self._spaces_status())
 
         if path == "/api/whoami":
             return self._send_json({"authed": self._authed(), "local": self._is_local()})
@@ -397,21 +449,16 @@ so trusting it can't be used to impersonate real websites.</p>
                 self._send_json({"ok": False}, 401)
             return
 
-        if parsed.path in ("/api/code/start", "/api/code/stop"):
-            if not self._code_admin_ok():
+        if parsed.path.startswith("/api/spaces/"):
+            if not self._admin_ok():
                 return self._send_json({"error": "only available on this Mac"}, 403)
             length = int(self.headers.get("Content-Length", 0) or 0)
             try:
                 data = json.loads(self.rfile.read(length) or b"{}") if length else {}
             except Exception:
                 data = {}
-            if parsed.path == "/api/code/stop":
-                CODE.stop("stopped from Dromac")
-                return self._send_json(CODE.status())
-            try:
-                return self._send_json(CODE.start(data.get("folder", "")))
-            except (ValueError, RuntimeError, OSError) as e:
-                return self._send_json({"error": str(e)}, 400)
+            result = self._spaces_action(parsed.path[len("/api/spaces/"):], data)
+            return self._send_json(result, 400 if "error" in result else 200)
 
         if parsed.path == "/api/logout":
             token = self._cookie_token()
@@ -555,13 +602,27 @@ so trusting it can't be used to impersonate real websites.</p>
 
 
 def main():
-    global CODE
+    global SPACES, GATE
     import codegate
-    CODE = codegate.CodeGate(BASE_DIR, _detect_lan_ip)
+    import spaces
+
+    def log(msg, ip=""):
+        line = f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {ip or '-':15}  {msg}\n"
+        (BASE_DIR / "code").mkdir(mode=0o700, exist_ok=True)
+        with open(BASE_DIR / "code" / "access.log", "a") as f:
+            f.write(line)
+        print(f"[codegate] {msg} {ip}", file=sys.stderr)
+
+    SPACES = spaces.Spaces(BASE_DIR, log)
+    GATE = codegate.Gate(BASE_DIR, _detect_lan_ip, SPACES, log)
+    SPACES.on_idle = GATE.stop
+    if SPACES.runtime_up():
+        SPACES.stop_all("cleared at startup")  # leftovers from a previous run; workspaces persist
 
     def shutdown(*_):
-        # Never leave a code-server running with nothing gating it.
-        CODE.stop("stopped: FileDrop exiting")
+        # Never leave workspaces running with nothing in front of them.
+        GATE.stop()
+        SPACES.stop_all("stopped: FileDrop exiting")
         os._exit(0)
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)

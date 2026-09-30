@@ -9,16 +9,14 @@ here="$(cd "$(dirname "$0")" && pwd)"
 dest="$HOME/Library/Application Support/FileDrop"
 
 mkdir -p "$dest"
-cp "$here/server.py" "$here/codegate.py" "$here/macauth.py" "$here/sandbox.py" "$dest/"
+cp "$here/server.py" "$here/codegate.py" "$here/spaces.py" "$dest/"
 rsync -a --delete "$here/static/" "$dest/static/"
+rsync -a --delete "$here/docker/" "$dest/docker/"
 
-# CodeGate's Touch ID prompt. Without a Swift compiler (Xcode Command Line
-# Tools), CodeGate just falls back to the Mac password.
-if command -v swiftc >/dev/null 2>&1; then
-  swiftc -O "$here/touchid.swift" -o "$dest/touchid"
-else
-  rm -f "$dest/touchid"
-  echo "swiftc not found: CodeGate will use the Mac password instead of Touch ID."
+# CodeGate runs each member in a Docker container. That's optional; if Docker
+# and Colima aren't installed, FileDrop works as before without it.
+if ! command -v docker >/dev/null 2>&1 || ! command -v colima >/dev/null 2>&1; then
+  echo "Optional: for CodeGate rooms, run:  brew install colima docker"
 fi
 
 # A running server keeps serving the old code until restarted.
